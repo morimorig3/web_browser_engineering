@@ -1,10 +1,11 @@
 import tkinter.font
+from html_parser import Text
 
 HSTEP, VSTEP = 13, 18 # 水平・垂直ステップ
 WIDTH, HEIGHT = 800, 600
 
 class Layout:
-    def __init__(self, tokens):
+    def __init__(self, nodes):
         self.display_list = []
         self.line = []
         self.cursor_x = HSTEP
@@ -13,39 +14,46 @@ class Layout:
         self.style = "roman"
         self.size = 16
 
-        for tok in tokens:
-            self.token(tok)
-
+        self.recurse(nodes)
         self.flush()
 
-    def token(self, tok):
-        if isinstance(tok, Text):
-            for word in tok.text.split():
-                self.word(word)
-        elif tok.tag == "i":
+    def open_tag(self, tag):
+        if tag == "i":
             self.style = "italic"
-        elif tok.tag == "/i":
-            self.style = "roman"
-        elif tok.tag == "b":
+        elif tag == "b":
             self.weight = "bold"
-        elif tok.tag == "/b":
-            self.weight = "normal"
-        elif tok.tag == "big":
+        elif tag == "big":
             self.size += 4
-        elif tok.tag == "/big":
-            self.size -= 4
-        elif tok.tag == "small":
+        elif tag == "small":
             self.size -= 2
-        elif tok.tag == "/small":
+
+    def close_tag(self, tag):
+        if tag == "i":
+            self.style = "roman"
+        elif tag == "b":
+            self.weight = "normal"
+        elif tag == "big":
+            self.size -= 4
+        elif tag == "small":
             self.size += 2
-        elif tok.tag == "br":
+        elif tag == "br":
             self.flush()
-        elif tok.tag == "/p":
-            self.flush()
-            self.cursor_y += VSTEP
-        elif tok.tag == "/h1":
+        elif tag == "p":
             self.flush()
             self.cursor_y += VSTEP
+        elif tag == "h1":
+            self.flush()
+            self.cursor_y += VSTEP
+
+    def recurse(self, tree):
+        if isinstance(tree, Text):
+            for word in tree.text.split():
+                self.word(word)
+        else:
+            self.open_tag(tree.tag)
+            for child in tree.children:
+                self.recurse(child)
+            self.close_tag(tree.tag)
 
     def word(self, word):
         font = get_font(self.size, self.weight, self.style)
@@ -97,12 +105,3 @@ def get_font(size, weight, style):
         FONTS[key] = (font, label)
 
     return FONTS[key][0]
-
-
-class Text:
-    def __init__(self, text):
-        self.text = text
-
-class Tag:
-    def __init__(self, tag):
-        self.tag = tag

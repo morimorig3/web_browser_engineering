@@ -1,5 +1,6 @@
 import tkinter
-from layout import Layout, Text, Tag
+from layout import Layout
+from html_parser import HTMLParser, print_tree
 
 SCROLL_STEP = 100
 WIDTH, HEIGHT = 800, 600
@@ -22,8 +23,9 @@ class Browser:
 
     def load(self, url):
         body = url.request()
-        tokens = lex(body)
-        self.display_list = Layout(tokens).display_list
+        self.nodes = HTMLParser(body).parse()
+        # print_tree(self.nodes)
+        self.display_list = Layout(self.nodes).display_list
         self.draw()
 
     def draw(self):
@@ -41,35 +43,3 @@ class Browser:
     def scrollup(self, e):
         self.scroll -= SCROLL_STEP
         self.draw()
-
-# '<!DOCTYPE html>\n<html lang="ja">\n<body>\n    <h1>Hello, World!</h1>\n
-# <p>This is <b>bold tag!</b>.</p>\n    <p>But, This is <i>italic tag!</i>.</p>\n</body>\n</html>'
-
-# パース
-def lex(body):
-    out = []
-    buffer = "" # テキスト タグ内容を一時保存するバッファ
-    in_tag = False
-    for c in body:
-        # 開始タグ
-        if c == "<":
-            in_tag = True
-
-            # バッファにテキストがあればテキストオブジェクトにして保存してリセット
-            # ex. This is <i>it..
-            if buffer: out.append(Text(buffer))
-            buffer = ""
-        # 終了タグ
-        elif c == ">":
-            in_tag = False
-
-            # p>
-            out.append(Tag(buffer))
-            buffer = ""
-        else:
-            buffer += c
-
-    if not in_tag and buffer:
-        out.append(Text(buffer))
-
-    return out
