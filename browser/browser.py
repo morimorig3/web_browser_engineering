@@ -1,5 +1,5 @@
 import tkinter
-from layout import Layout
+from document_layout import DocumentLayout
 from html_parser import HTMLParser, print_tree
 
 SCROLL_STEP = 100
@@ -25,21 +25,30 @@ class Browser:
         body = url.request()
         self.nodes = HTMLParser(body).parse()
         # print_tree(self.nodes)
-        self.display_list = Layout(self.nodes).display_list
+        # self.display_list = Layout(self.nodes).display_list
+        self.document = DocumentLayout(self.nodes)
+        self.document.layout()
+        self.display_list = []
+        paint_tree(self.document, self.display_list)
         self.draw()
 
     def draw(self):
         self.canvas.delete("all")
-        for x, y, c, f in self.display_list:
-            if y > self.scroll + HEIGHT: continue
-            if y + VSTEP < self.scroll: continue
-
-            self.canvas.create_text(x, y - self.scroll, text=c, anchor='nw', font=f)
+        for cmd in self.display_list:
+            if cmd.top > self.scroll + HEIGHT: continue
+            if cmd.bottom < self.scroll: continue
+            cmd.execute(self.scroll, self.canvas)
 
     def scrolldown(self, e):
-        self.scroll += SCROLL_STEP
+        max_y = max(self.document.height + 2*VSTEP - HEIGHT, 0)
+        self.scroll = min(self.scroll + SCROLL_STEP, max_y)
         self.draw()
 
     def scrollup(self, e):
-        self.scroll -= SCROLL_STEP
+        self.scroll = max(self.scroll - SCROLL_STEP, 0)
         self.draw()
+
+def paint_tree(layout_object, display_list):
+    display_list.extend(layout_object.paint())
+    for child in layout_object.children:
+        paint_tree(child, display_list)

@@ -1,21 +1,125 @@
 import tkinter.font
-from html_parser import Text
+
+from draw import DrawText, DrawRect
+from html_parser import Element, Text
 
 HSTEP, VSTEP = 13, 18 # 水平・垂直ステップ
-WIDTH, HEIGHT = 800, 600
 
-class Layout:
-    def __init__(self, nodes):
+BLOCK_ELEMENTS = [
+    "html",
+    "body",
+    "article",
+    "section",
+    "nav",
+    "aside",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hgroup",
+    "header",
+    "footer",
+    "address",
+    "p",
+    "hr",
+    "pre",
+    "blockquote",
+    "ol",
+    "ul",
+    "menu",
+    "li",
+    "dl",
+    "dt",
+    "dd",
+    "figure",
+    "figcaption",
+    "main",
+    "div",
+    "table",
+    "form",
+    "fieldset",
+    "legend",
+    "details",
+    "summary",
+]
+
+class BlockLayout:
+    def __init__(self, node, parent, previous):
+        self.node = node
+        self.parent = parent # 親ポインタ
+        self.previous = previous # 前の兄弟ポインタ
+        self.children = [] # 子ポインタ
         self.display_list = []
         self.line = []
-        self.cursor_x = HSTEP
-        self.cursor_y = VSTEP
-        self.weight = "normal"
-        self.style = "roman"
-        self.size = 16
 
-        self.recurse(nodes)
-        self.flush()
+        self.x = None
+        self.y = None
+        self.width = None
+        self.height = None
+        self.cursor_x = 0
+        self.cursor_y = 0
+
+    def paint(self):
+        cmds = []
+        if self.layout_mode() == "inline":
+            for x, y ,word, font in self.display_list:
+                cmds.append(DrawText(x, y, word, font))
+
+        if isinstance(self.node, Element) and self.node.tag == "pre":
+            x2, y2 = self.x + self.width, self.y + self.height
+            rect = DrawRect(self.x, self.y, x2, y2, "gray")
+            cmds.append(rect)
+
+        return cmds
+
+    def layout_mode(self):
+        if isinstance(self.node, Text):
+            return "inline"
+        elif any([isinstance(child, Element) and child.tag in BLOCK_ELEMENTS for child in self.node.children]):
+            return "block"
+        elif self.node.children:
+            return "inline"
+        else:
+            return "block"
+
+    def layout(self):
+        # スタイルなしではx位置も横幅も親と同じ
+        self.x = self.parent.x
+        self.width = self.parent.width
+
+        # 兄弟ブロック要素がある場合は兄弟分の高さを考慮
+        if self.previous:
+            self.y = self.previous.y + self.previous.height
+        else:
+            self.y = self.parent.y
+
+        mode = self.layout_mode()
+        if mode == "block":
+            previous = None
+            for child in self.node.children:
+                next = BlockLayout(child, self, previous)
+                self.children.append(next)
+                previous = next
+        else:
+            self.height = self.cursor_y
+            self.cursor_x = 0
+            self.cursor_y = 0
+            self.weight = "normal"
+            self.style = "roman"
+            self.size = 12
+
+            self.recurse(self.node)
+            self.flush()
+
+        for child in self.children:
+            child.layout()
+
+        if mode == "block":
+            self.height = sum([child.height for child in self.children])
+        else:
+            self.height = self.cursor_y
 
     def open_tag(self, tag):
         if tag == "i":
@@ -61,10 +165,9 @@ class Layout:
 
         # 描画開始位置 + 文字幅 が単語の描画終了位置
         right_end = self.cursor_x + w
-        screen_size = WIDTH - HSTEP
 
         # 画面幅を超える場合はフラッシュする
-        if right_end > screen_size:
+        if right_end > self.width:
             self.flush()
 
         self.line.append((self.cursor_x, word, font))
@@ -78,8 +181,9 @@ class Layout:
         baseline = self.cursor_y + 1.25 * max_ascent
 
         # 各単語をベースラインに沿って配置する
-        for x, word, font in self.line:
-            y = baseline - font.metrics("ascent")
+        for rel_x, word, font in self.line:
+            x = self.x + rel_x
+            y = self.y + baseline - font.metrics("ascent")
             self.display_list.append((x, y, word, font))
 
         # 行内の最大ディセントを計算して次行開始位置を調整
@@ -88,7 +192,7 @@ class Layout:
         self.cursor_y = baseline + 1.25 * max_descent
 
         # カーソルリセットとバッファクリア
-        self.cursor_x = HSTEP
+        self.cursor_x = 0
         self.line = []
 
 FONTS = {}
