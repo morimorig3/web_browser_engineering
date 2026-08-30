@@ -1,6 +1,9 @@
 import tkinter
 from document_layout import DocumentLayout
-from html_parser import HTMLParser, print_tree
+from html_parser import HTMLParser, print_tree, Element
+from css_parser import style, CSSParser, INHERITED_PROPERTIES
+
+DEFAUL_STYLE_SHEET = CSSParser(open("browser/browser.css").read()).parse()
 
 SCROLL_STEP = 100
 WIDTH, HEIGHT = 800, 600
@@ -12,7 +15,8 @@ class Browser:
         self.canvas = tkinter.Canvas(
             self.window,
             width=WIDTH,
-            height=HEIGHT
+            height=HEIGHT,
+            bg="white"
         )
         self.canvas.pack()
         self.scroll = 0
@@ -24,6 +28,21 @@ class Browser:
     def load(self, url):
         body = url.request()
         self.nodes = HTMLParser(body).parse()
+        rules = DEFAUL_STYLE_SHEET.copy()
+        links = [node.attributes["href"] for node in tree_to_list(self.nodes, [])
+                 if isinstance(node, Element)
+                 and node.tag == "link"
+                 and node.attributes.get("rel") == "stylesheet"
+                 and "href" in node.attributes
+                 ]
+        for link in links:
+            style_url = url.resolve(link)
+            try:
+                body = style_url.request()
+            except:
+                continue
+            rules.extend(CSSParser(body).parse())
+        style(self.nodes, sorted(rules, key=cascade_priority))
         # print_tree(self.nodes)
         # self.display_list = Layout(self.nodes).display_list
         self.document = DocumentLayout(self.nodes)
@@ -52,3 +71,13 @@ def paint_tree(layout_object, display_list):
     display_list.extend(layout_object.paint())
     for child in layout_object.children:
         paint_tree(child, display_list)
+
+def tree_to_list(tree, list):
+    list.append(tree)
+    for child in tree.children:
+        tree_to_list(child, list)
+    return list
+
+def cascade_priority(rule):
+    selector, body = rule
+    return selector.priority
