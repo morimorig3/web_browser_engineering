@@ -21,5 +21,4 @@ class DocumentLayout:
         self.x = HSTEP
         self.y = VSTEP
         child.layout()
-        self.display_list = child.display_list
         self.height = child.height

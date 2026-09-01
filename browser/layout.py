@@ -1,7 +1,6 @@
-import tkinter.font
-
-from draw import DrawText, DrawRect
+from draw import DrawText, DrawRect, Rect
 from html_parser import Element, Text
+from helper import get_font
 
 HSTEP, VSTEP = 13, 18 # 水平・垂直ステップ
 BLOCK_ELEMENTS = [
@@ -50,7 +49,6 @@ class BlockLayout:
         self.parent = parent # 親ポインタ
         self.previous = previous # 前の兄弟ポインタ
         self.children = [] # 子ポインタ
-        self.display_list = []
         self.line = []
 
         self.x = None
@@ -60,21 +58,19 @@ class BlockLayout:
         self.cursor_x = 0
         self.cursor_y = 0
 
+    def self_rect(self):
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+
     def paint(self):
         cmds = []
-        if self.layout_mode() == "inline":
-            for x, y ,word, font, color in self.display_list:
-                cmds.append(DrawText(x, y, word, font, color))
-
-        # if isinstance(self.node, Element) and self.node.tag == "pre":
-        #     x2, y2 = self.x + self.width, self.y + self.height
-        #     rect = DrawRect(self.x, self.y, x2, y2, "gray")
-        #     cmds.append(rect)
+        if isinstance(self.node, Element) and self.node.tag == "pre":
+            x2, y2 = self.x + self.width, self.y + self.height
+            rect = DrawRect(Rect(self.x, self.y, x2, y2), "gray")
+            cmds.append(rect)
 
         bgcolor = self.node.style.get("background-color", "transparent")
         if bgcolor != "transparent":
-            x2, y2 = self.x + self.width, self.y + self.height
-            rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
+            rect = DrawRect(self.self_rect(), bgcolor)
             cmds.append(rect)
 
         return cmds
@@ -108,23 +104,13 @@ class BlockLayout:
                 self.children.append(next)
                 previous = next
         else:
-            self.height = self.cursor_y
-            self.cursor_x = 0
-            self.cursor_y = 0
-            self.weight = "normal"
-            self.style = "roman"
-            self.size = 12
-
+            self.new_line()
             self.recurse(self.node)
-            self.flush()
 
         for child in self.children:
             child.layout()
 
-        if mode == "block":
-            self.height = sum([child.height for child in self.children])
-        else:
-            self.height = self.cursor_y
+        self.height = sum([child.height for child in self.children])
 
     def recurse(self, node):
         if isinstance(node, Text):
@@ -151,9 +137,15 @@ class BlockLayout:
 
         # 画面幅を超える場合はフラッシュする
         if right_end > self.width:
-            self.flush()
+            self.new_line()
 
-        self.line.append((self.cursor_x, word, font, color))
+        # self.line.append((self.cursor_x, word, font, color))
+
+        line = self.children[-1]
+        previous_word = line.children[-1] if line.children else None
+        text = TextLayout(node, word, line, previous_word)
+        line.children.append(text)
+
         self.cursor_x += w + font.measure(" ") # 文字
 
     def flush(self):
@@ -178,17 +170,81 @@ class BlockLayout:
         self.cursor_x = 0
         self.line = []
 
-FONTS = {}
+    def new_line(self):
+        self.cursor_x = 0
+        last_line = self.children[-1] if self.children else None
+        new_line = LineLayout(self.node, self, last_line)
+        self.children.append(new_line)
 
-def get_font(size, weight, style):
-    key = (size, weight, style)
-    if key not in FONTS:
-        font = tkinter.font.Font(
-            size=size,
-            weight=weight,
-            slant=style
-        )
-        label = tkinter.Label(font=font)
-        FONTS[key] = (font, label)
+class LineLayout:
+    def __init__(self, node, parent, previous):
+        self.node = node
+        self.parent = parent
+        self.previous = previous
+        self.children = []
 
-    return FONTS[key][0]
+    def layout(self):
+        self.width = self.parent.width
+        self.x = self.parent.x
+
+        if self.previous:
+            self.y = self.previous.y + self.previous.height
+        else:
+            self.y = self.parent.y
+
+        for word in self.children:
+            word.layout()
+
+        if not self.children:
+            self.height = 0
+            return
+
+        # 行内の最大アセントを計算
+        max_ascent = max([word.font.metrics("ascent") for word in self.children])
+        baseline = self.y + 1.25 * max_ascent
+
+        # 各単語をベースラインに沿って配置する
+        for word in self.children:
+            word.y = baseline - word.font.metrics("ascent")
+
+        # 行内の最大ディセントを計算して次行開始位置を調整
+        max_descent = max([word.font.metrics("descent") for word in self.children])
+
+        self.height = 1.25 * (max_ascent+ max_descent)
+
+    def paint(self):
+        return []
+
+class TextLayout:
+    def __init__(self, node, word, parent, previous):
+        self.node = node
+        self.word = word
+        self.children = []
+        self.parent = parent
+        self.previous = previous
+
+    def layout(self):
+        weight = self.node.style["font-weight"]
+        style = self.node.style["font-style"]
+        if style == "normal": style = "roman"
+        size = int(float(self.node.style["font-size"][:-2]) * .75)
+        self.font = get_font(size, weight, style)
+
+        self.width = self.font.measure(self.word)
+        if self.previous:
+            space = self.previous.font.measure(" ")
+            self.x = self.previous.x + space + self.previous.width
+        else:
+            self.x = self.parent.x
+
+        self.height = self.font.metrics("linespace")
+
+    def paint(self):
+        color = self.node.style["color"]
+        return [DrawText(
+            self.x,
+            self.y,
+            self.word,
+            self.font,
+            color
+        )]
